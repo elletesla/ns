@@ -1,0 +1,175 @@
+#PROGRAMMING AASIGNMENT 2 
+# BA model not there so dont study that
+import networkx as nx
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import stats
+from collections import Counter
+
+# Task 1: Power-law degree distribution networks
+def generate_power_law_sequence(N, gamma):
+    # Generate power-law degree sequence
+    degrees = np.random.pareto(gamma - 1, N).astype(int) + 1  # Ensure minimum degree 1
+    # Adjust to make sum even
+    if sum(degrees) % 2 != 0:
+        degrees[np.random.randint(0, N)] += 1
+    return degrees
+
+def compute_multi_self_loops(N, gamma, trials=5):
+    self_loop_percent = []
+    multi_link_percent = []
+    for _ in range(trials):
+        # Generate configuration model
+        degrees = generate_power_law_sequence(N, gamma)
+        G_multi = nx.configuration_model(degrees)
+        total_edges = G_multi.number_of_edges()
+        
+        # Count self-loops
+        self_loops = sum(1 for u, v in G_multi.edges() if u == v)
+        self_loop_percent.append((self_loops / total_edges) * 100 if total_edges > 0 else 0)
+        
+        # Convert to simple graph to count multi-links
+        G_simple = nx.Graph(G_multi)
+        multi_links = total_edges - G_simple.number_of_edges() - self_loops
+        multi_link_percent.append((multi_links / total_edges) * 100 if total_edges > 0 else 0)
+    
+    return np.mean(self_loop_percent), np.mean(multi_link_percent)
+
+def plot_percentages(N_values, gamma_values):
+    for gamma in gamma_values:
+        self_loops = []
+        multi_links = []
+        for N in N_values:
+            sl, ml = compute_multi_self_loops(N, gamma)
+            self_loops.append(sl)
+            multi_links.append(ml)
+        
+        plt.figure(figsize=(8, 6))
+        plt.plot(N_values, self_loops, label='Self-loops', marker='o')
+        plt.plot(N_values, multi_links, label='Multi-links', marker='s')
+        plt.xscale('log')
+        plt.xlabel('Number of Nodes (N)')
+        plt.ylabel('Percentage (%)')
+        plt.title(f'Multi-links and Self-loops for γ = {gamma}')
+        plt.legend()
+        plt.grid(True, which="both", ls="--")
+        plt.show()
+
+# Task 2: Barabási-Albert network
+def generate_barabasi_albert(N, m):
+    # Start with a fully connected graph of m nodes
+    G = nx.complete_graph(m)
+    degrees = [m-1] * m  # Initial degrees
+    snapshots = []
+    target_N = [100, 1000, 10000]
+    
+    for new_node in range(m, N):
+        # Preferential attachment: choose m nodes
+        probs = np.array(degrees) / sum(degrees)
+        targets = np.random.choice(list(G.nodes()), size=m, replace=False, p=probs)
+        G.add_node(new_node)
+        for target in targets:
+            G.add_edge(new_node, target)
+            degrees[target] += 1
+        degrees.append(m)
+        
+        # Snapshot at target sizes
+        if new_node + 1 in target_N:
+            snapshots.append(G.copy())
+    
+    return snapshots
+
+def fit_power_law(degree_counts, k_min=1):
+    degrees = []
+    for k, count in degree_counts.items():
+        degrees.extend([k] * count)
+    degrees = np.array(degrees)
+    degrees = degrees[degrees >= k_min]  # Filter small degrees
+    if len(degrees) == 0:
+        return None, None
+    log_degrees = np.log(degrees)
+    gamma = 1 + len(degrees) / np.sum(log_degrees - np.log(k_min))
+    return gamma, len(degrees)
+
+def plot_degree_distributions(snapshots, target_N):
+    plt.figure(figsize=(8, 6))
+    for i, G in enumerate(snapshots):
+        degree_counts = Counter(dict(G.degree()).values())
+        degrees = np.array(list(degree_counts.keys()))
+        counts = np.array(list(degree_counts.values()))
+        probs = counts / sum(counts)
+        plt.loglog(degrees, probs, 'o', label=f'N={target_N[i]}')
+        
+        # Fit power-law
+        gamma, n = fit_power_law(degree_counts)
+        if gamma:
+            k = np.array(list(degree_counts.keys()))
+            fitted = k ** (-gamma) / np.sum(k ** (-gamma))
+            plt.loglog(k, fitted, '--', label=f'Fit γ={gamma:.2f}')
+    
+    plt.xlabel('Degree (k)')
+    plt.ylabel('P(k)')
+    plt.title('Degree Distributions')
+    plt.legend()
+    plt.grid(True, which="both", ls="--")
+    plt.show()
+
+def plot_cumulative_distributions(snapshots, target_N):
+    plt.figure(figsize=(8, 6))
+    for i, G in enumerate(snapshots):
+        degree_counts = Counter(dict(G.degree()).values())
+        degrees = np.array(list(degree_counts.keys()))
+        counts = np.array(list(degree_counts.values()))
+        sorted_degrees = np.sort(degrees)
+        cum_probs = np.cumsum(counts[np.argsort(degrees)][::-1]) / sum(counts)
+        plt.loglog(sorted_degrees, cum_probs, 'o-', label=f'N={target_N[i]}')
+    
+    plt.xlabel('Degree (k)')
+    plt.ylabel('P(K ≥ k)')
+    plt.title('Cumulative Degree Distributions')
+    plt.legend()
+    plt.grid(True, which="both", ls="--")
+    plt.show()
+
+def compute_clustering_coefficient(N_values, m):
+    clustering = []
+    for N in N_values:
+        G = nx.barabasi_albert_graph(N, m)
+        clustering.append(nx.average_clustering(G))
+    
+    plt.figure(figsize=(8, 6))
+    plt.plot(N_values, clustering, marker='o')
+    plt.xscale('log')
+    plt.xlabel('Number of Nodes (N)')
+    plt.ylabel('Average Clustering Coefficient')
+    plt.title('Clustering Coefficient vs N (m=4)')
+    plt.grid(True, which="both", ls="--")
+    plt.show()
+
+# Main execution
+if __name__ == "__main__":
+    # Task 1: Power-law networks
+    N_values = [100, 500, 1000, 5000, 10000, 50000, 100000]
+    gamma_values = [2.2, 3.0]
+    for gamma in gamma_values:
+        print(f"\nTask 1: γ = {gamma}")
+        for N in [1000, 10000, 100000]:
+            sl, ml = compute_multi_self_loops(N, gamma)
+            print(f"N={N}: Self-loops = {sl:.2f}%, Multi-links = {ml:.2f}%")
+    plot_percentages(N_values, gamma_values)
+
+    # Task 2: Barabási-Albert network
+    N = 10000
+    m = 4
+    target_N = [100, 1000, 10000]
+    snapshots = generate_barabasi_albert(N, m)
+    
+    # Task 2a, 2b: Degree distributions and power-law fit
+    plot_degree_distributions(snapshots, target_N)
+    
+    # Task 2c: Cumulative degree distributions
+    plot_cumulative_distributions(snapshots, target_N)
+    
+    # Task 2d: Clustering coefficient
+    N_values = [100, 200, 500, 1000, 2000, 5000, 10000]
+    compute_clustering_coefficient(N_values, m)
